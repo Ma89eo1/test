@@ -52,21 +52,38 @@ do_new:
     mov dx, offset entername
     mov ah, 09h
     int 21h
+
     lea si, buffer
     call read_line
-    ; save filename
+
+    ; find first empty slot
     mov di, offset file_names
     mov cx, 10
 .findslot:
-    mov bx, 8
-    mov dx, di
-    mov si, offset buffer
-    call copy_string
+    mov al, [di]
+    cmp al, '$'
+    je .slot_found
+    add di, 8
+    loop .findslot
+    jmp main_loop
+.slot_found:
+    ; copy filename
+    lea si, buffer
+    mov bx, di
+    mov cx, 8
+.copy_loop:
+    mov al, [si]
+    mov [bx], al
+    inc si
+    inc bx
+    dec cx
+    jnz .copy_loop
     jmp main_loop
 
+
 do_list:
-    mov cx, 10
     mov di, offset file_names
+    mov cx, 10
 .list_loop:
     mov dx, di
     mov ah, 09h
@@ -75,21 +92,27 @@ do_list:
     loop .list_loop
     jmp main_loop
 
+
 do_view:
     mov dx, offset entername
     mov ah, 09h
     int 21h
+
     lea si, buffer
     call read_line
-    ; search filename
+
     mov di, offset file_names
     mov cx, 10
-    mov bx, -1
 .search_loop:
-    mov si, offset buffer
+    push cx
+    lea bx, buffer
+    lea si, di
+    mov cx, 8
     call compare_string
-    jnz .found
+    cmp ax,1
+    je .found
     add di, 8
+    pop cx
     loop .search_loop
     mov dx, offset filenotfound
     mov ah, 09h
@@ -97,24 +120,48 @@ do_view:
     jmp main_loop
 .found:
     ; display content
-    mov dx, offset file_contents
+    mov dx, di
+    mov ah, 09h
     int 21h
     jmp main_loop
+
 
 do_del:
     mov dx, offset entername
     mov ah, 09h
     int 21h
+
     lea si, buffer
     call read_line
-    ; delete logic here (optional)
+    ; simple deletion: overwrite with '$'
+    mov di, offset file_names
+    mov cx, 10
+.del_loop:
+    lea bx, di
+    lea si, buffer
+    mov cx, 8
+    call compare_string
+    cmp ax,1
+    je .del_found
+    add di, 8
+    loop .del_loop
     jmp main_loop
+.del_found:
+    mov cx, 8
+.fill_loop:
+    mov [di], '$'
+    inc di
+    dec cx
+    jnz .fill_loop
+    jmp main_loop
+
 
 do_help:
     mov dx, offset helpmsg
     mov ah, 09h
     int 21h
     jmp main_loop
+
 
 do_exit:
     ret
@@ -127,28 +174,29 @@ read_line:
     mov ah,01h
     int 21h
     cmp al,13
-    je .done_read
+    je .rl_done
     mov [si], al
     inc si
     inc cx
     cmp cx,31
-    je .done_read
+    je .rl_done
     jmp .rl_loop
-.done_read:
+.rl_done:
     mov [si],'$'
     ret
+
 
 to_upper:
     mov cx,32
 .upper_loop:
     mov al,[si]
     cmp al,'a'
-    jb .next
+    jb .next_upper
     cmp al,'z'
-    ja .next
+    ja .next_upper
     sub al,32
     mov [si],al
-.next:
+.next_upper:
     inc si
     loop .upper_loop
     ret
@@ -173,15 +221,20 @@ compare:
 .match: mov ax,1 ret
 .fail:  mov ax,0 ret
 
-copy_string:
+compare_string:
     push cx dx
-.copy_loop:
+.cmp_loop:
     mov al,[si]
-    mov [dx],al
+    cmp al,[bx]
+    jne .no_match
     inc si
-    inc dx
-    dec bx
-    jnz .copy_loop
+    inc bx
+    dec cx
+    jnz .cmp_loop
+    mov ax,1
+    jmp .done_cmp
+.no_match: mov ax,0
+.done_cmp:
     pop dx cx
     ret
 
